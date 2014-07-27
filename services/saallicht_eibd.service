@@ -1,0 +1,13 @@
+[Unit]
+Description=EIB Daemon Saallicht
+After=syslog.target network.target
+
+[Service]
+ExecStart=/usr/bin/eibd -i -d tpuarts:/dev/ttyACM0
+Type=forking
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+
