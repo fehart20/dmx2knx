@@ -1,18 +1,17 @@
-// *** KONFIGURATION ****
-// URL, unter der EIBd erreichbar ist
+// *** CONFIGURATION ****
+// URL to be used for connnection to EIBd
 #define EIBD_URL "ip:127.0.0.1"
 
-// Datei, in der die DMX-EIB-Adresszuordnungen liegen
+// DMX-EIB address assignments file
 #define CONFIG_FILENAME "pairs.conf"
 
-// Timeout beim auslesen der DMX-Daten aus dem FX5-Interface (Millisekunden)
+// Timeout for reading the DMX data from the Digital Enlightenment USB-DMX interface (in milliseconds)
 #define FX5_READ_TIMEOUT 100
 
-// Die Ausgabewerte werden schrittweise ausgegeben. Zeit zwischen zwei Ausgaben in
-// Millisekunden.
+// Changed EIB data values are sent on a regular basis. Delay between sending two EIB values.
 #define EIB_WRITE_DELAY 10
 
-// Ersten wert ignorieren
+// Ignore first input value of DMX interface, disabled by default.
 #define IGNORE_FIRST_VALUE false
 
 // C++ includes
@@ -50,10 +49,10 @@ class EIB_fixture
 			m_lastval(0),
 			m_new_value(false) {};
 
-		// Gibt true zurück, wenn der Wert neu ist
+		// Returns true if given DMX value has changed
 		bool onDMXInput(dmxvalue_t val)
 		{
-			// Erster Wert: ignorieren, und als gegeben annehmen
+			// Ignore first DMX input value and set m_lastval
 			if (!m_init)
 			{
 				m_lastval = val;
@@ -61,7 +60,7 @@ class EIB_fixture
 				return false;
 			}
 
-			// Bei Änderungen des Wertes diese ausgeben
+			// Output DMX value changes to EIB bus
 			if (val != m_lastval)
 			{
 				m_lastval = val;
@@ -72,9 +71,9 @@ class EIB_fixture
 			return false;
 		}
 
-		// Gibt true zurück, wenn ein neuer EIB-Wert ausgegeben wurde
-		// Gibt false zurück, wenn kein neuer Wert vorhanden ist
-		// Ruft einfach groupswrite oder groupwrite auf
+		// Returns true if a new EIB values is available and outputs it
+		// Returns false if no new EIB value is available
+		// Simply calls groupswrite (switch) or groupwrite (value)
 		bool updateOutput()
 		{
 			if (!m_new_value) return false;
@@ -101,19 +100,19 @@ class EIB_fixture
 		}
 
 	private:
-		// Die EIB-Gruppenadresse dieses Gateways
+		// EIB group address (as string) for the connected EIB fixture
 		std::string m_addr;
 
-		// Der Gruppentyp (Schalter oder Wert = Dimmen)
+		// EIB fixture type, either switch (1bit, on/off) or value (dimming 0-100%)
 		EIB_fixture_type m_type;
 
-		// Speichert, ob schon ein gültiger Wert eingelesen wurde
+		// Saves if a valid value has been input from the DMX interface yet
 		bool m_init;
 
-		// Speichert den letzten DMX-Eingabewert
+		// Saves last DMX input value
 		dmxvalue_t m_lastval;
 
-		// Speichert, ob ein Ausgabe-Update erforderlich ist
+		// True, if a new value is available to be output through EIBd
 		bool m_new_value;
 };
 
@@ -124,45 +123,45 @@ void loadConfig(std::string filename)
 	std::cout << "Gateway-Verbindungen:" << std::endl;
 	std::cout << "-------------------------------------" << std::endl;
 
-	// Datei mit filename öffnen
+	// Open file with given filename
 	std::ifstream file;
 	file.open(getBasedir() + filename.c_str());
 
-	// Zeile für Zeile parsen
+	// Parse config line by line
 	std::string line;
 	while (std::getline(file, line))
 	{
-		// Leere Linien ignorieren
+		// Ignore empty lines
 		if (line.length() == 0) continue;
 
-		// Leerzeichen & Tabs entfernen
+		// Remove tabs & spaces
 		line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
 
-		// Linien, die mit # beginnen ignorieren
+		// Ignore lines starting with # (=comments)
 		if (line.at(0) == '#') continue;
 
-		// Position des ersten Gleichheitszeichens (=)
+		// Position of first equals sign (=)
 		size_t eq1_pos = line.find_first_of("=");
 
-		// Position des zweiten Gleichheitszeichens (=)
+		// Position of second equals sign (=)
 		size_t eq2_pos = line.find("=", eq1_pos + 1);
 
-		// Wert links vom ersten = (DMX Adresse)
+		// Read value left of the first equals sign (DMX address)
 		std::string dmxaddr_str = line.substr(0, eq1_pos);
 
-		// Wert rechts vom ersten = (EIB Adresse) bis zum zweiten =
+		// Read value between first and second equals sign (EIB address)
 		std::string eibaddr_str = line.substr(eq1_pos + 1, eq2_pos - eq1_pos - 1);
 
-		// Wert rechts vom zweiten = (EIB Typ)
+		// Read value right of the second equals sign (Type: Switch or value)
 		std::string fixtype_str = line.substr(eq2_pos + 1, line.length() - eq2_pos);
 
-		// DMX Adresse von std::string zu dmxaddr_t
+		// Convert DMX address from std::string to dmxaddr_t
 		dmxaddr_t dmxaddr;
 		std::istringstream convert(dmxaddr_str);
 		if (!(convert >> dmxaddr))
 			errorMessage("Fehlerhafte DMX Adresse in Config (" + dmxaddr_str + ")");
 
-		// EIB Adresstyp von std::string zu EIB_fixture_type
+		// Convert EIB fixture type from std::string to EIB_fixture_type (EIB_SWITCH or EIB_VALUE)
 		EIB_fixture_type fixtype;
 		if (fixtype_str == "SWITCH")
 			fixtype = EIB_SWITCH;
@@ -171,7 +170,7 @@ void loadConfig(std::string filename)
 		else
 			errorMessage("Ungültiger EIB-Typ: " + fixtype_str);
 
-		// DMX <--> EIB Adresspaar als GateWay registrieren
+		// Register DMX <--> EIB address pair as gateway
 		gateways[dmxaddr] = new EIB_fixture(eibaddr_str, fixtype);
 		std::cout << "DMX: " << dmxaddr << " --> EIB: " << eibaddr_str;
 		std::cout << " als " << (fixtype == EIB_SWITCH ? "Schalter" : "Wert") << std::endl;
@@ -185,11 +184,11 @@ void eibOutputThread()
 {
 	for(;;)
 	{
-		// Alle EIB_WRITE_DELAY Millisekunden Werte ausgeben
+		// Output new EIB values every EIB_WRITE_DELAY milliseconds
 		std::chrono::milliseconds delay(EIB_WRITE_DELAY);
 		std::this_thread::sleep_for(delay);
 
-		// Niedrigste DMX-Adressen werden zuerst verarbeitet
+		// Only output one value. Lower DMX addresses are prioritized
 		for (auto g : gateways)
 			if (g.second->updateOutput()) break;
 	}
@@ -201,7 +200,7 @@ void eibOutputThread()
 // ########################################################
 void onDMXInput(dmxaddr_t addr, dmxvalue_t val)
 {
-	// Wenn Gateway registriert ist, EIB-Signal ausgeben
+	// Call onDMXInput on gateway if registered
 	if (gateways.find(addr) != gateways.end())
 		if (gateways[addr]->onDMXInput(val))
 			std::cout << "[INPUT ] DMX=" << addr << " -> " << std::to_string(val) << std::endl;
@@ -211,30 +210,31 @@ int main()
 {
 	std::cout << "DMX-EIB-Gateway startet. Build: " << VERSION << std::endl;
 
-	// Config-Datei laden und ausgeben
+	// Parse config file, register gateways and output configuration
 	loadConfig(CONFIG_FILENAME);
 
-	// DMX FX5 initialisieren (Vendor ID + Product ID: Digital Enlightenment sunlight killer)
+	// Initialize USB-DMX interface (Vendor ID + Product ID: Digital Enlightenment Sunlight Killer)
+	// !!! If you're using the FX5 interface instead of the Digital Enlightenment Sunlight Killer you have to change these lines !!!
 	hid_device *fx5;
 	fx5 = hid_open(0x04b4, 0x0f1f, NULL);
 	if (!fx5)
 		errorMessage("Konte USB-DMX-Interface nicht finden");
 
-	// FX5 als input verwenden
+	// Use FX5 as output
 	uint8_t cmd[34];
 	memset(cmd, 0, 34);
 	cmd[1] = 16;
 	cmd[2] = 4; // (4 = input only mode)
 	hid_write(fx5, cmd, 34);
 
-	// EIB output thread starten
+	// Create and detach EIB output thread
 	std::thread t(eibOutputThread);
 	t.detach();
 
 	// DMX input polling
 	for (;;)
 	{
-		// DMX-Input lesen
+		// Read DMX input
 		uint8_t buffer[35];
 		int size;
 		size = hid_read_timeout(fx5, buffer, 33, FX5_READ_TIMEOUT);
