@@ -10,7 +10,10 @@
 
 // Die Ausgabewerte werden schrittweise ausgegeben. Zeit zwischen zwei Ausgaben in
 // Millisekunden.
-#define EIB_WRITE_DELAY 50
+#define EIB_WRITE_DELAY 10
+
+// Ersten wert ignorieren
+#define IGNORE_FIRST_VALUE false
 
 // C++ includes
 #include <algorithm>
@@ -26,16 +29,11 @@
 
 // HIDapi for FX5
 #include <hidapi/hidapi.h>
-
-// EIBd
-#include <eibclient.h>
 #include "util.h"
 
 // ########################################################
 // ##                   KNX/EIB Output                   ##
 // ########################################################
-EIBConnection *eibd = nullptr;
-
 enum EIB_fixture_type
 {
 	EIB_VALUE = 1,
@@ -45,23 +43,22 @@ enum EIB_fixture_type
 class EIB_fixture
 {
 	public:
-		EIB_fixture(eibaddr_t addr, EIB_fixture_type type) :
+		EIB_fixture(std::string addr, EIB_fixture_type type) :
 			m_addr(addr),
 			m_type(type),
-			m_init(false),
+			m_init(!IGNORE_FIRST_VALUE),
 			m_lastval(0),
 			m_new_value(false) {};
 
-		void onDMXInput(dmxvalue_t val)
+		// Gibt true zurück, wenn der Wert neu ist
+		bool onDMXInput(dmxvalue_t val)
 		{
-			m_mutex.lock();
 			// Erster Wert: ignorieren, und als gegeben annehmen
 			if (!m_init)
 			{
 				m_lastval = val;
 				m_init = true;
-				m_mutex.unlock();
-				return;
+				return false;
 			}
 
 			// Bei Änderungen des Wertes diese ausgeben
@@ -69,57 +66,43 @@ class EIB_fixture
 			{
 				m_lastval = val;
 				m_new_value = true;
+				return true;
 			}
-			m_mutex.unlock();
+
+			return false;
 		}
 
 		// Gibt true zurück, wenn ein neuer EIB-Wert ausgegeben wurde
 		// Gibt false zurück, wenn kein neuer Wert vorhanden ist
-		// Nach "KNX BASIC COURSE", Seite 16
-		// http://www.knx.org/media/docs/KNX-Tutor-files/Summary/KNX-Communication.pdf
+		// Ruft einfach groupswrite oder groupwrite auf
 		bool updateOutput()
 		{
-			m_mutex.lock();
-			if (!m_new_value)
-			{
-				m_mutex.unlock();
-				return false;
-			}
+			if (!m_new_value) return false;
 
-			uint8_t buffer[3] = {0x00};
-			uint8_t msg_len = 0;
 			if (m_type == EIB_SWITCH) // 1-bit
 			{
-				msg_len = 2;
-				if (m_lastval > 127)
-					buffer[1] = 0x81; // on
-				else
-					buffer[1] = 0x80; // off
+				system(("groupswrite " + std::string(EIBD_URL) + " " + m_addr + " "
+					+ ((m_lastval > 127) ? "1" : "0")).c_str());
 				std::cout << "[OUTPUT] KNX=" << m_addr << " -> " <<
 					(m_lastval > 127 ? "on" : "off") << std::endl;
 			}
 			else if (m_type == EIB_VALUE) // 1 byte
 			{
-				msg_len = 3;
-				buffer[1] = 0x80;
-				buffer[2] = m_lastval;
+				int8_t output = m_lastval / 2.55 - 1;
+				if (output < 0) output = 0;
+				system(("groupwrite " + std::string(EIBD_URL) + " " + m_addr + " "
+					+ std::to_string(output)).c_str());
 				std::cout << "[OUTPUT] KNX=" << m_addr << " -> " <<
-					(m_lastval / 2.55) << "%" << std::endl;
+					std::to_string(output) << std::endl;
 			}
 			m_new_value = false;
 
-			if (EIBOpenT_Group (eibd, m_addr, 1) == -1)
-				errorMessage("Gruppe nicht gefunden");
-
-			EIBSendAPDU (eibd, msg_len, buffer);
-
-			m_mutex.unlock();
 			return true;
 		}
 
 	private:
 		// Die EIB-Gruppenadresse dieses Gateways
-		eibaddr_t m_addr;
+		std::string m_addr;
 
 		// Der Gruppentyp (Schalter oder Wert = Dimmen)
 		EIB_fixture_type m_type;
@@ -132,10 +115,6 @@ class EIB_fixture
 
 		// Speichert, ob ein Ausgabe-Update erforderlich ist
 		bool m_new_value;
-
-		// Kontrolliert, dass der EIB-Thread und der DMX-Thread nicht gleichzeitig
-		// auf variablen zugreifen.
-		std::mutex m_mutex;
 };
 
 std::map<dmxaddr_t, EIB_fixture*> gateways;
@@ -183,12 +162,6 @@ void loadConfig(std::string filename)
 		if (!(convert >> dmxaddr))
 			errorMessage("Fehlerhafte DMX Adresse in Config (" + dmxaddr_str + ")");
 
-		// EIB Adresse von std::string zu eibaddr_t
-		eibaddr_t eibaddr = getGroupAddr(eibaddr_str);
-		if (eibaddr == 0x00)
-			errorMessage("Ungültiges Format für Gruppenadresse in Config: " +
-				std::string(eibaddr_str));
-
 		// EIB Adresstyp von std::string zu EIB_fixture_type
 		EIB_fixture_type fixtype;
 		if (fixtype_str == "SWITCH")
@@ -199,7 +172,7 @@ void loadConfig(std::string filename)
 			errorMessage("Ungültiger EIB-Typ: " + fixtype_str);
 
 		// DMX <--> EIB Adresspaar als GateWay registrieren
-		gateways[dmxaddr] = new EIB_fixture(eibaddr, fixtype);
+		gateways[dmxaddr] = new EIB_fixture(eibaddr_str, fixtype);
 		std::cout << "DMX: " << dmxaddr << " --> EIB: " << eibaddr_str;
 		std::cout << " als " << (fixtype == EIB_SWITCH ? "Schalter" : "Wert") << std::endl;
 	}
@@ -230,10 +203,8 @@ void onDMXInput(dmxaddr_t addr, dmxvalue_t val)
 {
 	// Wenn Gateway registriert ist, EIB-Signal ausgeben
 	if (gateways.find(addr) != gateways.end())
-	{
-		std::cout << "[INPUT ] DMX=" << addr << " -> " << std::to_string(val) << std::endl;
-		gateways[addr]->onDMXInput(val);
-	}
+		if (gateways[addr]->onDMXInput(val))
+			std::cout << "[INPUT ] DMX=" << addr << " -> " << std::to_string(val) << std::endl;
 }
 
 int main()
@@ -243,17 +214,9 @@ int main()
 	// Config-Datei laden und ausgeben
 	loadConfig(CONFIG_FILENAME);
 
-	// EIB initialisieren
-	eibd = EIBSocketURL(EIBD_URL);
-	EIBOpen_GroupSocket (eibd, 1);
-	if (!eibd) errorMessage("Konnte keine Verbindung zum eibd-Daemon aufbauen");
-	// EIB-Output-Thread starten
-	std::thread t(eibOutputThread);
-	t.detach();
-
 	// DMX FX5 initialisieren (Vendor ID + Product ID: Digital Enlightenment sunlight killer)
 	hid_device *fx5;
-	fx5 = hid_open(0xb404, 0x1f0f, NULL);
+	fx5 = hid_open(0x04b4, 0x0f1f, NULL);
 	if (!fx5)
 		errorMessage("Konte USB-DMX-Interface nicht finden");
 
@@ -263,6 +226,10 @@ int main()
 	cmd[1] = 16;
 	cmd[2] = 4; // (4 = input only mode)
 	hid_write(fx5, cmd, 34);
+
+	// EIB output thread starten
+	std::thread t(eibOutputThread);
+	t.detach();
 
 	// DMX input polling
 	for (;;)
@@ -279,8 +246,11 @@ int main()
 		 * [1]-[32] = channel values, where the nth value is the offset + n
 		*/
 		while (size > 0)
+		{
 			if (size == 33)
 				for (int i = 0; i < 32; i++)
-					onDMXInput(buffer[0] * 32 + i, buffer[i + 1]);
+					onDMXInput(buffer[0] * 32 + i + 1, buffer[i + 1]);
+			size = hid_read_timeout(fx5, buffer, 33, FX5_READ_TIMEOUT);
+		}
 	}
 }
