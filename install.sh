@@ -20,7 +20,7 @@ function AUR_install {
 cp ./eibloadresult.h /usr/include
 
 # Hostname
-echo "saallicht" > /etc/hostname
+echo "mensaknxtodmx" > /etc/hostname
 
 # Passwort
 echo "Root Passwort eingeben:"
