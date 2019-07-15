@@ -50,12 +50,12 @@ systemctl enable saallicht_eibd
 systemctl enable saallicht_gateway
 
 # Make filesystem readonly
-FSTAB_VAR="\ntmpfs   /var/log    tmpfs   nodev,nosuid    0   0\ntmpfs   /var/tmp    tmpfs   nodev,nosuid    0   0"
-CMDLINE="ipv6.disable=1 avoid_safe_mode=1 selinux=0 plymouth.enable=0 smsc95xx.turbo_mode=N dwc_otg.lpm_enable=0 console=ttyAMA0,115200 kgdboc=ttyAMA0,115200 console=tty1 root=/dev/mmcblk0p5 ro rootfstype=ext4 elevator=noop rootwait"
-echo -e $CMDLINE > /boot/cmdline.txt
-rm /etc/resolv.conf
-ln -s /tmp/resolv.conf /etc/resolv.conf
-echo -e $FSTAB_VAR >> /etc/fstab
-systemctl disable systemd-readahead-collect
-systemctl disable systemd-random-seed
-systemctl disable ntpd
+#FSTAB_VAR="\ntmpfs   /var/log    tmpfs   nodev,nosuid    0   0\ntmpfs   /var/tmp    tmpfs   nodev,nosuid    0   0"
+#CMDLINE="ipv6.disable=1 avoid_safe_mode=1 selinux=0 plymouth.enable=0 smsc95xx.turbo_mode=N dwc_otg.lpm_enable=0 console=ttyAMA0,115200 kgdboc=ttyAMA0,115200 console=tty1 root=/dev/mmcblk0p5 ro rootfstype=ext4 elevator=noop rootwait"
+#echo -e $CMDLINE > /boot/cmdline.txt
+#rm /etc/resolv.conf
+#ln -s /tmp/resolv.conf /etc/resolv.conf
+#echo -e $FSTAB_VAR >> /etc/fstab
+#systemctl disable systemd-readahead-collect
+#systemctl disable systemd-random-seed
+#systemctl disable ntpd
